@@ -1,0 +1,105 @@
+########################################
+#                                      #
+# SCCM Client Uninstall v1.0.A         #
+# Created By: Ben Tefend & Noah Dillon #
+# Created On: 7/26/2018                #
+# Revised On: 7/26/2018                #
+#                                      ######################################################### 
+#                                                                                              #
+#                                                                                              #
+# The purpose of this script is to completely remove the SCCM Client from a computer.          #
+# This script will also open up the computers firewall to fix most basic communication issues  #
+# to the site server and local DPs.                                                            #
+#                                                                                              #
+# References:                                                                                  #
+#                                                                                              #
+# http://babaus.azurewebsites.net/2015/05/24/full-and-clean-reinstall-of-a-configmgr-client/   #
+# https://forums.prajwaldesai.com/threads/sccm-client-install-failed-with-exit-code-1603.1047/ #
+#                                                                                              #
+################################################################################################
+
+Start-Transcript -path C:\SCCM_Cleanup.log -append
+
+###################################
+#                                 #
+# Set execution policy for script #
+#                                 #
+###################################
+
+Set-ExecutionPolicy -ExecutionPolicy Bypass
+
+#########################
+#                       #
+# Uninstall SCCM Client #
+#                       #
+#########################
+
+# Stop CCMEXEC
+Taskkill /IM CcmExec.exe* /F
+
+# Uninstall SCCM Client
+C:\Windows\ccmsetup\ccmsetup.exe /uninstall
+Start-Sleep -s 30
+
+# Stop Services
+Stop-Service -Name ccmsetup -Force
+Stop-Service -Name CcmExec -Force
+Stop-Service -Name smstsmgr -Force
+Stop-Service -Name CmRcService -Force
+
+# Remove WMI Namespaces
+Get-WmiObject -Query "SELECT * FROM __Namespace WHERE Name='ccm'" -Namespace root | Remove-WmiObject
+Get-WmiObject -Query "SELECT * FROM __Namespace WHERE Name='sms'" -Namespace root\cimv2 | Remove-WmiObject
+
+#########################################################
+#                                                       #
+# Registry/File clean up after uninstalling SCCM Client #
+#                                                       #
+#########################################################
+
+# Remove Services from Registry
+reg delete HKLM\SYSTEM\CurrentControlSet\Services\CCMSetup /f
+reg delete HKLM\SYSTEM\CurrentControlSet\Services\CcmExec /f
+reg delete HKLM\SYSTEM\CurrentControlSet\Services\smstsmgr /f
+reg delete HKLM\SYSTEM\CurrentControlSet\Services\CmRcService /f
+reg delete HKLM\SYSTEM\CurrentControlSet\Services\clisvcl /f
+
+# Remove SCCM Client from Registry
+reg delete HKLM\SOFTWARE\MicrosoftT\CCM /f
+reg delete HKLM\SOFTWARE\Microsoft\CCMSetup /f
+reg delete HKLM\SOFTWARE\Microsoft\NAL /f
+reg delete HKLM\SOFTWARE\Microsoft\SMS /f
+
+# Remove System Certificate from Registry
+reg delete HKLM\SOFTWARE\Microsoft\Systemcertificates\SMS\Certificates /f
+
+# Remove SCCM Sitecode from Registry
+reg delete "HKLM\SOFTWARE\Microsoft\SMS\Mobile Client\AssignedSiteCode" /f
+reg delete "HKLM\SOFTWARE\Microsoft\SMS\Mobile Client\GPRequestedSiteAssignmentCode" /f
+
+# Remove Folders and Files
+Remove-Item -Path C:\Windows\CCM -Force -Recurse
+Remove-Item -Path C:\Windows\ccmsetup -Force -Recurse
+Remove-Item -Path C:\Windows\ccmcache -Force -Recurse
+Remove-Item -Path C:\Windows\SMSCFG.ini -Force
+Remove-Item -Path C:\Windows\SMS*.mif -Force
+
+# Verify/Salvage SCCM Repository
+Winmgmt /salvagerepository
+Winmgmt /verifyrepository
+Net start winmgmt
+
+#############################################################
+#                                                           #
+# SCCM Firewall Rules for Communication with Site Server(s) #
+#                                                           #
+#############################################################
+
+netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes
+netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes
+netsh advfirewall firewall set rule group="Remote Assistance" new enable=Yes
+netsh advfirewall firewall set rule group="Windows Management Instrumentation (WMI)" new enable=Yes
+netsh advfirewall firewall set rule group="Windows Remote Management" new enable=Yes
+netsh advfirewall firewall set rule group="Windows Remote Management (Compatibility)" new enable=Yes 
+
+Stop-Transcript
